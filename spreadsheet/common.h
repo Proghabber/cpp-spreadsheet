@@ -26,6 +26,12 @@ struct Position {
     static const Position NONE;
 };
 
+struct HashPosition {
+    std::size_t operator()(const Position& pos) const {
+        return std::hash<int>()(pos.col) ^ std::hash<int>()(pos.row);
+    }
+};
+
 struct Size {
     int rows = 0;
     int cols = 0;
@@ -39,16 +45,32 @@ public:
     enum class Category {
         Ref,    // ссылка на ячейку с некорректной позицией
         Value,  // ячейка не может быть трактована как число
-        Div0,  // в результате вычисления возникло деление на ноль
+        Arithmetic,  // в результате вычисления возникло деление на ноль
     };
 
-    FormulaError(Category category);
+    FormulaError(Category category):category_(category)
+    {
+    }
 
-    Category GetCategory() const;
+    Category GetCategory() const{
+        return category_;
+    }
 
-    bool operator==(FormulaError rhs) const;
+    bool operator==(FormulaError rhs) const{
+        if (category_ == rhs.category_){
+            return true;
+        }
+        return false;
+    }
 
-    std::string_view ToString() const;
+    std::string_view ToString() const{
+        if (category_ == Category::Ref){
+            return "#REF!";
+        } else if (category_ == Category::Arithmetic){
+            return "#ARITHM!";
+        }
+        return "#VALUE!";
+    }
 
 private:
     Category category_;

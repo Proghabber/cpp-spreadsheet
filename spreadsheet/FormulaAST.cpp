@@ -11,6 +11,28 @@
 #include <sstream>
 
 namespace ASTImpl {
+    bool StrIsDigit(std::string text){
+        std::stringstream exam;
+        size_t leng = 0;
+        exam << text;
+        int digit = 0;
+        exam >> digit;
+        if (text.empty()){
+            return false;
+        }
+        if (text.at(0) == '0' && digit == 0) {
+            return true;
+        }
+        else if (digit == 0) {
+            return false;
+        } else {
+            std::stoi(text, &leng);
+            if (leng != text.size()) {
+                return false;
+            }
+        }
+        return true;
+    }
 
 enum ExprPrecedence {
     EP_ADD,
@@ -72,7 +94,7 @@ public:
     virtual ~Expr() = default;
     virtual void Print(std::ostream& out) const = 0;
     virtual void DoPrintFormula(std::ostream& out, ExprPrecedence precedence) const = 0;
-    virtual double Evaluate(/*добавьте сюда нужные аргументы*/ args) const = 0;
+    virtual double Evaluate(const SheetInterface& sheet) const = 0;
 
     // higher is tighter
     virtual ExprPrecedence GetPrecedence() const = 0;
@@ -142,8 +164,34 @@ public:
         }
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/) const override {
-			// Скопируйте ваше решение из предыдущих уроков.
+    double Evaluate(const SheetInterface& sheet) const override {
+        double lhs = lhs_->Evaluate(sheet);
+        double rhs = rhs_->Evaluate(sheet);
+        if (type_ == Type::Add){
+            if (!std::isfinite(lhs + rhs )){
+                throw FormulaError::Category::Arithmetic;
+            }
+            return lhs + rhs;
+        } else if (type_ == Type::Subtract){
+            if (!std::isfinite(lhs - rhs) ){
+                throw FormulaError::Category::Arithmetic;
+            }
+            return lhs - rhs;
+        } else if (type_ == Type::Multiply){
+            if (!std::isfinite(lhs * rhs) ){
+                throw FormulaError::Category::Arithmetic;
+            }
+            return lhs * rhs;
+        }
+
+        if (!std::isfinite(rhs / lhs)){
+            throw FormulaError::Category::Arithmetic;
+        }
+        if (!std::isfinite(lhs / rhs)){
+            throw FormulaError::Category::Arithmetic;
+        }
+
+        return lhs / rhs;
     }
 
 private:
@@ -180,8 +228,12 @@ public:
         return EP_UNARY;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
-        // Скопируйте ваше решение из предыдущих уроков.
+    double Evaluate(const SheetInterface& sheet) const override {
+        auto rez = operand_->Evaluate(sheet);
+        if (type_ == Type::UnaryPlus){
+            return  +rez;
+        }
+        return  -rez;
     }
 
 private:
@@ -197,7 +249,7 @@ public:
 
     void Print(std::ostream& out) const override {
         if (!cell_->IsValid()) {
-            out << FormulaError::Category::Ref;
+            out << "FormulaError::Category::Ref";
         } else {
             out << cell_->ToString();
         }
@@ -211,8 +263,23 @@ public:
         return EP_ATOM;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
-        // реализуйте метод.
+    double Evaluate(const SheetInterface& sheet) const override {
+        //реализуйте метод.
+        if (!sheet.GetCell(*cell_)){
+            return 0;
+        }
+        auto cel_exam = sheet.GetCell(*cell_)->GetValue();
+        if (std::holds_alternative<double>(cel_exam)){
+            return std::get<double>(cel_exam);
+        } else if (std::holds_alternative<std::string>(cel_exam)){
+            auto str = std::get<std::string>(cel_exam);
+            if (StrIsDigit(str)){
+                return std::stod(std::get<std::string>(cel_exam));
+             } else if (!str.empty()){
+                 throw FormulaError::Category::Value;
+            }
+        }
+        return 0;       
     }
 
 private:
@@ -237,7 +304,7 @@ public:
         return EP_ATOM;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
+    double Evaluate(const SheetInterface& sheet) const override {
         return value_;
     }
 
@@ -391,8 +458,8 @@ void FormulaAST::PrintFormula(std::ostream& out) const {
     root_expr_->PrintFormula(out, ASTImpl::EP_ATOM);
 }
 
-double FormulaAST::Execute(/*добавьте нужные аргументы*/ args) const {
-    return root_expr_->Evaluate(/*добавьте нужные аргументы*/ args);
+double FormulaAST::Execute(const SheetInterface& sheet) const {
+    return root_expr_->Evaluate(sheet);
 }
 
 FormulaAST::FormulaAST(std::unique_ptr<ASTImpl::Expr> root_expr, std::forward_list<Position> cells)

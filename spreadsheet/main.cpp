@@ -349,6 +349,31 @@ void TestCellCircularReferences() {
 }
 }  // namespace
 
+void PrintSheet(const std::unique_ptr<SheetInterface>& sheet, std::ostream& output) {
+    output << sheet->GetPrintableSize() << std::endl;
+    sheet->PrintTexts(output);
+    output << std::endl;
+    sheet->PrintValues(output);
+    output << std::endl;
+}
+
+void TestClearPrintq() {
+    std::ostringstream texts;
+    std::string rez;
+    auto sheet = CreateSheet();
+    for (int i = 0; i <= 5; ++i) {
+        sheet->SetCell(Position{i, i}, std::to_string(i));
+    }
+
+    sheet->ClearCell(Position{3, 3});
+
+    for (int i = 5; i >= 0; --i) {
+        sheet->ClearCell(Position{i, i});
+        PrintSheet(sheet, texts);
+    }
+    rez = texts.str();
+}
+
 int main() {
     TestRunner tr;
     RUN_TEST(tr, TestPositionAndStringConversion);
@@ -370,4 +395,5 @@ int main() {
     RUN_TEST(tr, TestCellReferences);
     RUN_TEST(tr, TestFormulaIncorrect);
     RUN_TEST(tr, TestCellCircularReferences);
+    TestClearPrintq();
 }
