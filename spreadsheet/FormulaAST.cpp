@@ -167,31 +167,27 @@ public:
     double Evaluate(const SheetInterface& sheet) const override {
         double lhs = lhs_->Evaluate(sheet);
         double rhs = rhs_->Evaluate(sheet);
-        if (type_ == Type::Add){
-            if (!std::isfinite(lhs + rhs )){
-                throw FormulaError::Category::Arithmetic;
-            }
-            return lhs + rhs;
-        } else if (type_ == Type::Subtract){
-            if (!std::isfinite(lhs - rhs) ){
-                throw FormulaError::Category::Arithmetic;
-            }
-            return lhs - rhs;
-        } else if (type_ == Type::Multiply){
-            if (!std::isfinite(lhs * rhs) ){
-                throw FormulaError::Category::Arithmetic;
-            }
-            return lhs * rhs;
+        double result = 0;
+      
+        auto calculator = [](double value) -> double {if(!std::isfinite(value)){
+                                                    throw FormulaError::Category::Arithmetic;
+                                                } 
+                                                    return value;};
+        switch(type_){
+            case Type::Add:
+                result = calculator(lhs + rhs);
+                break;
+            case Type::Subtract:
+                result = calculator(lhs - rhs);
+                break;
+            case Type::Multiply:
+                result = calculator(lhs * rhs);
+                break;
+            case Type::Divide:
+                result = calculator(lhs / rhs);
+                break;
         }
-
-        if (!std::isfinite(rhs / lhs)){
-            throw FormulaError::Category::Arithmetic;
-        }
-        if (!std::isfinite(lhs / rhs)){
-            throw FormulaError::Category::Arithmetic;
-        }
-
-        return lhs / rhs;
+        return result;
     }
 
 private:

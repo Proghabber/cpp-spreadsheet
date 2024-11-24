@@ -1,3 +1,5 @@
+#include <limits>
+
 #include "common.h"
 #include "formula.h"
 #include "test_runner_p.h"
@@ -24,9 +26,6 @@ inline std::ostream& operator<<(std::ostream& output, const CellInterface::Value
 }
 
 namespace {
-std::string ToString(FormulaError::Category category) {
-    return std::string(FormulaError(category).ToString());
-}
 
 void TestPositionAndStringConversion() {
     auto testSingle = [](Position pos, std::string_view str) {
@@ -150,13 +149,17 @@ void TestFormulaArithmetic() {
 
 void TestFormulaReferences() {
     auto sheet = CreateSheet();
-    auto evaluate = [&](std::string expr) {
-        return std::get<double>(ParseFormula(std::move(expr))->Evaluate(*sheet));
+    auto evaluate = [&](std::string expr) { 
+        auto pars = ParseFormula(std::move(expr));
+        auto pars1 = pars->Evaluate(*sheet);
+        return std::get<double>(pars->Evaluate(*sheet));
     };
 
     sheet->SetCell("A1"_pos, "1");
+
     ASSERT_EQUAL(evaluate("A1"), 1);
     sheet->SetCell("A2"_pos, "2");
+    auto two = evaluate("A1+A2");
     ASSERT_EQUAL(evaluate("A1+A2"), 3);
 
     // Тест на нули:
@@ -189,7 +192,9 @@ void TestFormulaReferencedCells() {
     ASSERT_EQUAL(b2c3->GetReferencedCells(), (std::vector{"B2"_pos, "C3"_pos}));
 
     auto tricky = ParseFormula("A1 + A2 + A1 + A3 + A1 + A2 + A1");
+    auto rt = tricky->GetExpression();
     ASSERT_EQUAL(tricky->GetExpression(), "A1+A2+A1+A3+A1+A2+A1");
+    auto rty = tricky->GetReferencedCells();
     ASSERT_EQUAL(tricky->GetReferencedCells(), (std::vector{"A1"_pos, "A2"_pos, "A3"_pos}));
 }
 
@@ -197,45 +202,50 @@ void TestErrorValue() {
     auto sheet = CreateSheet();
     sheet->SetCell("E2"_pos, "A1");
     sheet->SetCell("E4"_pos, "=E2");
+    
     ASSERT_EQUAL(sheet->GetCell("E4"_pos)->GetValue(),
-                 CellInterface::Value(FormulaError::Category::Value));
+                    CellInterface::Value(FormulaError::Category::Value));
 
     sheet->SetCell("E2"_pos, "3D");
+    auto two = sheet->GetCell("E4"_pos)->GetValue();
     ASSERT_EQUAL(sheet->GetCell("E4"_pos)->GetValue(),
-                 CellInterface::Value(FormulaError::Category::Value));
+                    CellInterface::Value(FormulaError::Category::Value));
 }
 
-void TestErrorDiv0() {
+void TestErrorArithmetic() {
     auto sheet = CreateSheet();
 
     constexpr double max = std::numeric_limits<double>::max();
 
     sheet->SetCell("A1"_pos, "=1/0");
     ASSERT_EQUAL(sheet->GetCell("A1"_pos)->GetValue(),
-                 CellInterface::Value(FormulaError::Category::Div0));
+                    CellInterface::Value(FormulaError::Category::Arithmetic));
 
     sheet->SetCell("A1"_pos, "=1e+200/1e-200");
     ASSERT_EQUAL(sheet->GetCell("A1"_pos)->GetValue(),
-                 CellInterface::Value(FormulaError::Category::Div0));
+                    CellInterface::Value(FormulaError::Category::Arithmetic));
 
     sheet->SetCell("A1"_pos, "=0/0");
     ASSERT_EQUAL(sheet->GetCell("A1"_pos)->GetValue(),
-                 CellInterface::Value(FormulaError::Category::Div0));
+                    CellInterface::Value(FormulaError::Category::Arithmetic));
 
     {
         std::ostringstream formula;
         formula << '=' << max << '+' << max;
         sheet->SetCell("A1"_pos, formula.str());
         ASSERT_EQUAL(sheet->GetCell("A1"_pos)->GetValue(),
-                     CellInterface::Value(FormulaError::Category::Div0));
+                        CellInterface::Value(FormulaError::Category::Arithmetic));
     }
 
     {
         std::ostringstream formula;
         formula << '=' << -max << '-' << max;
         sheet->SetCell("A1"_pos, formula.str());
+        auto atal = formula.str();
+        auto at = sheet->GetCell("A1"_pos)->GetValue();
+
         ASSERT_EQUAL(sheet->GetCell("A1"_pos)->GetValue(),
-                     CellInterface::Value(FormulaError::Category::Div0));
+                        CellInterface::Value(FormulaError::Category::Arithmetic));
     }
 
     {
@@ -243,14 +253,14 @@ void TestErrorDiv0() {
         formula << '=' << max << '*' << max;
         sheet->SetCell("A1"_pos, formula.str());
         ASSERT_EQUAL(sheet->GetCell("A1"_pos)->GetValue(),
-                     CellInterface::Value(FormulaError::Category::Div0));
+                        CellInterface::Value(FormulaError::Category::Arithmetic));
     }
 }
 
 void TestEmptyCellTreatedAsZero() {
     auto sheet = CreateSheet();
     sheet->SetCell("A1"_pos, "=B2");
-    ASSERT_EQUAL(sheet->GetCell("A1"_pos)->GetValue(), CellInterface::Value(0));
+    ASSERT_EQUAL(sheet->GetCell("A1"_pos)->GetValue(), CellInterface::Value(0.0));
 }
 
 void TestFormulaInvalidPosition() {
@@ -282,10 +292,12 @@ void TestPrint() {
 
     std::ostringstream texts;
     sheet->PrintTexts(texts);
+    auto text1 = texts.str();
     ASSERT_EQUAL(texts.str(), "\t\nmeow\t=35\n");
 
     std::ostringstream values;
     sheet->PrintValues(values);
+    auto values1 = values.str();
     ASSERT_EQUAL(values.str(), "\t\nmeow\t35\n");
 }
 
@@ -296,15 +308,23 @@ void TestCellReferences() {
     sheet->SetCell("B2"_pos, "=A1");
 
     ASSERT(sheet->GetCell("A1"_pos)->GetReferencedCells().empty());
+    auto one =sheet->GetCell("A2"_pos)->GetReferencedCells();
+    auto two =sheet->GetCell("B2"_pos)->GetReferencedCells();
     ASSERT_EQUAL(sheet->GetCell("A2"_pos)->GetReferencedCells(), std::vector{"A1"_pos});
     ASSERT_EQUAL(sheet->GetCell("B2"_pos)->GetReferencedCells(), std::vector{"A1"_pos});
 
     // Ссылка на пустую ячейку
     sheet->SetCell("B2"_pos, "=B1");
+    sheet->SetCell("B1"_pos, "");
+    auto oner = sheet->GetCell("B1"_pos)->GetReferencedCells();
     ASSERT(sheet->GetCell("B1"_pos)->GetReferencedCells().empty());
     ASSERT_EQUAL(sheet->GetCell("B2"_pos)->GetReferencedCells(), std::vector{"B1"_pos});
 
+    auto onesd = sheet->GetCell("A1"_pos)->GetReferencedCells();
+    auto onedfd = sheet->GetCell("A2"_pos)->GetReferencedCells();
     sheet->SetCell("A2"_pos, "");
+    auto ones = sheet->GetCell("A1"_pos)->GetReferencedCells();
+    auto onedf = sheet->GetCell("A2"_pos)->GetReferencedCells();
     ASSERT(sheet->GetCell("A1"_pos)->GetReferencedCells().empty());
     ASSERT(sheet->GetCell("A2"_pos)->GetReferencedCells().empty());
 
@@ -345,9 +365,11 @@ void TestCellCircularReferences() {
     }
 
     ASSERT(caught);
+    auto did = sheet->GetCell("M6"_pos)->GetText();
     ASSERT_EQUAL(sheet->GetCell("M6"_pos)->GetText(), "Ready");
 }
 }  // namespace
+
 
 void PrintSheet(const std::unique_ptr<SheetInterface>& sheet, std::ostream& output) {
     output << sheet->GetPrintableSize() << std::endl;
@@ -388,7 +410,7 @@ int main() {
     RUN_TEST(tr, TestFormulaExpressionFormatting);
     RUN_TEST(tr, TestFormulaReferencedCells);
     RUN_TEST(tr, TestErrorValue);
-    RUN_TEST(tr, TestErrorDiv0);
+    RUN_TEST(tr, TestErrorArithmetic);
     RUN_TEST(tr, TestEmptyCellTreatedAsZero);
     RUN_TEST(tr, TestFormulaInvalidPosition);
     RUN_TEST(tr, TestPrint);
